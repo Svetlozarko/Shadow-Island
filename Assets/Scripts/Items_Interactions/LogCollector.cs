@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.InputSystem;
 
 public class LogCollector : MonoBehaviour
@@ -8,19 +8,39 @@ public class LogCollector : MonoBehaviour
     public float pickupRange = 5f;
 
     [Header("Dock Settings")]
-    public Transform dock;        // Assign your dock in inspector
-    public float dockRange = 3f;  // Distance needed to place log
-
-    private GameObject carriedLog = null;
-    private PlayerControls controls;
+    public Transform dock; // Assign in Inspector
+    public float dockRange = 3f;
 
     [Header("Dock Tracking")]
     public int logsPlaced = 0;
+
+    private GameObject carriedLog = null;
+    private PlayerControls controls;
+    private Animator dockAnimator;
 
     private void Awake()
     {
         controls = new PlayerControls();
         controls.Gameplay.PickUp.performed += ctx => HandleInteract();
+
+        if (dock != null)
+        {
+            // Try get Animator directly from dock
+            dockAnimator = dock.GetComponent<Animator>();
+
+            // If not there, try children
+            if (dockAnimator == null)
+                dockAnimator = dock.GetComponentInChildren<Animator>();
+
+            if (dockAnimator != null)
+                Debug.Log("[LogCollector] ✅ Dock Animator found on: " + dockAnimator.gameObject.name);
+            else
+                Debug.LogError("[LogCollector] ❌ Dock Animator NOT found! Make sure the dock has an Animator.");
+        }
+        else
+        {
+            Debug.LogError("[LogCollector] ❌ Dock reference missing in Inspector!");
+        }
     }
 
     private void OnEnable() => controls.Gameplay.Enable();
@@ -31,22 +51,21 @@ public class LogCollector : MonoBehaviour
         if (carriedLog == null)
         {
             TryPickupLog();
+            return;
+        }
+
+        float distanceToDock = Vector2.Distance(transform.position, dock.position);
+        Debug.Log($"[LogCollector] Carrying log. Distance to dock: {distanceToDock}");
+
+        if (distanceToDock <= dockRange)
+        {
+            Debug.Log("[LogCollector] In range -> placing log");
+            PlaceLogAtDock();
         }
         else
         {
-            float distanceToDock = Vector2.Distance(transform.position, dock.position);
-            Debug.Log($"[LogCollector] Carrying log. Distance to dock: {distanceToDock}");
-
-            if (distanceToDock <= dockRange)
-            {
-                Debug.Log("[LogCollector] Within range to place log at dock.");
-                PlaceLogAtDock();
-            }
-            else
-            {
-                Debug.Log("[LogCollector] Dropping log at current position.");
-                DropLog();
-            }
+            Debug.Log("[LogCollector] Not near dock -> dropping log");
+            DropLog();
         }
     }
 
@@ -63,16 +82,14 @@ public class LogCollector : MonoBehaviour
             }
         }
 
-        Debug.Log("[LogCollector] No logs in range to pick up.");
+        Debug.Log("[LogCollector] No logs nearby");
     }
 
     void PickUp(GameObject log)
     {
         carriedLog = log;
-
         carriedLog.transform.SetParent(carryPoint);
         carriedLog.transform.localPosition = Vector3.zero;
-        carriedLog.transform.localRotation = Quaternion.identity;
 
         Rigidbody2D rb = carriedLog.GetComponent<Rigidbody2D>();
         if (rb != null) rb.isKinematic = true;
@@ -80,32 +97,43 @@ public class LogCollector : MonoBehaviour
         Collider2D col = carriedLog.GetComponent<Collider2D>();
         if (col != null) col.enabled = false;
 
-        Debug.Log("[LogCollector] Picked up log: " + log.name);
+        Debug.Log("[LogCollector] Picked up log " + log.name);
     }
 
     void PlaceLogAtDock()
     {
-        carriedLog.transform.SetParent(null);
-        carriedLog.transform.position = dock.position;
-        carriedLog.transform.localRotation = Quaternion.identity;
+        if (carriedLog == null) return;
 
+        // Before destroying it, remove physics and colliders so nothing weird happens
         Rigidbody2D rb = carriedLog.GetComponent<Rigidbody2D>();
-        if (rb != null) rb.isKinematic = false;
+        if (rb != null) rb.isKinematic = true;
 
         Collider2D col = carriedLog.GetComponent<Collider2D>();
-        if (col != null) col.enabled = true;
+        if (col != null) col.enabled = false;
 
+        string logName = carriedLog.name;
+
+        // Destroy the log object so it is completely removed
+        Destroy(carriedLog);
         carriedLog = null;
-        logsPlaced++;
 
-        Debug.Log("[LogCollector] Log placed at dock. Total logs placed: " + logsPlaced);
+        logsPlaced++;
+        Debug.Log("[LogCollector] Log '" + logName + "' placed at dock and destroyed. Total logs placed: " + logsPlaced);
+
+        // Update dock animation if you have one
+        if (dockAnimator != null)
+        {
+            dockAnimator.SetInteger("PlanksPlaced", logsPlaced);
+            Debug.Log("[LogCollector] Dock animation updated. PlanksPlaced = " + logsPlaced);
+        }
     }
+
+
 
     void DropLog()
     {
         carriedLog.transform.SetParent(null);
-        carriedLog.transform.position = transform.position; // Drop where the player is
-        carriedLog.transform.localRotation = Quaternion.identity;
+        carriedLog.transform.position = transform.position;
 
         Rigidbody2D rb = carriedLog.GetComponent<Rigidbody2D>();
         if (rb != null) rb.isKinematic = false;
@@ -113,7 +141,7 @@ public class LogCollector : MonoBehaviour
         Collider2D col = carriedLog.GetComponent<Collider2D>();
         if (col != null) col.enabled = true;
 
-        Debug.Log("[LogCollector] Log dropped at current position: " + carriedLog.name);
+        Debug.Log("[LogCollector] Log dropped: " + carriedLog.name);
         carriedLog = null;
     }
 
